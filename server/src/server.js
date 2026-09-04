@@ -14,29 +14,52 @@ connectDB();
 const app = express();
 
 // Middleware
-const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+const clientUrl = (process.env.CLIENT_URL || 'https://power-and-water-cut-alert-and-repor.vercel.app').trim().replace(/\/+$/, '');
 const allowedOrigins = [
   clientUrl,
+  'https://power-and-water-cut-alert-and-repor.vercel.app',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ];
+
+// Trust reverse proxy (Render, Vercel, Nginx)
+app.set('trust proxy', 1);
+
 app.use(
   cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps, curl, server-to-server)
       if (!origin) return callback(null, true);
-      if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+      const normalizedOrigin = origin.trim().replace(/\/+$/, '');
+      if (
+        allowedOrigins.includes(normalizedOrigin) ||
+        normalizedOrigin.endsWith('.vercel.app') ||
+        process.env.NODE_ENV !== 'production'
+      ) {
         return callback(null, true);
       }
-      return callback(null, true); // Permissive in dev/hackathon environment
+      return callback(null, true); // Permissive in hackathon environment
     },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Root welcome & API info endpoint (for deployment status verification)
+app.get('/', (req, res) => {
+  res.status(200).json({
+    name: 'Sri Lanka Power & Water Cut Alert and Reporting System API',
+    status: 'online',
+    health: '/api/health',
+    clientUrl: clientUrl,
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // Health check endpoint (for container checks, deployment validation, and frontend status ping)
 app.get('/api/health', (req, res) => {

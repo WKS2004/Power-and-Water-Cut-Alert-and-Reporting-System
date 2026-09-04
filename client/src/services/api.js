@@ -1,7 +1,19 @@
 /**
  * Centralized API Service Helper
  */
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+const envBaseUrl = import.meta.env.VITE_API_BASE_URL;
+const defaultBaseUrl = import.meta.env.DEV
+  ? '/api'
+  : 'https://power-and-water-cut-alert-and-reporting-6377.onrender.com/api';
+
+let resolvedBaseUrl = (envBaseUrl || defaultBaseUrl).trim().replace(/\/+$/, '');
+// Ensure `/api` path is appended if an absolute origin URL without `/api` is supplied
+if (resolvedBaseUrl.startsWith('http') && !resolvedBaseUrl.endsWith('/api')) {
+  resolvedBaseUrl = `${resolvedBaseUrl}/api`;
+}
+
+const BASE_URL = resolvedBaseUrl;
+
 
 /**
  * Universal request wrapper with token authorization & error handling

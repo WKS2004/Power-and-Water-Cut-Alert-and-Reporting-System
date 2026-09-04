@@ -252,5 +252,8 @@ In accordance with Section 2 of the assignment requirements, the team declares t
 ## 9. Deliverables & Links
 
 - **Git Repository**: `https://github.com/<your-username>/Power-and-Water-Cut-Alert-and-Reporting-System`
-- **Public Deployed Application**: `https://<your-deployment-url>.onrender.com` *(Test in an incognito window)*
+- **Public Deployed Client (Frontend)**: [https://power-and-water-cut-alert-and-repor.vercel.app](https://power-and-water-cut-alert-and-repor.vercel.app) *(Test in an incognito window)*
+- **Public Deployed Server (Backend API)**: [https://power-and-water-cut-alert-and-reporting-6377.onrender.com/](https://power-and-water-cut-alert-and-reporting-6377.onrender.com/)
+- **Backend Health Check**: [https://power-and-water-cut-alert-and-reporting-6377.onrender.com/api/health](https://power-and-water-cut-alert-and-reporting-6377.onrender.com/api/health)
 - **Two-Minute Demonstration Video**: `https://1drv.ms/<your-video-link>`
+
