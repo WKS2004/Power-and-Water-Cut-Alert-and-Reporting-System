@@ -1,0 +1,55 @@
+services:
+  # Database Service
+  mongo:
+    image: mongo:6.0
+    container_name: power-water-mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=power_water_alerts
+    networks:
+      - app-network
+
+  # Backend Express API Service
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: power-water-server
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - MONGO_URI=mongodb://mongo:27017/power_water_alerts
+      - JWT_SECRET=supersecretjwtkey_change_in_production
+      - CLIENT_URL=http://localhost:3000
+    depends_on:
+      - mongo
+    networks:
+      - app-network
+
+  # Frontend React (Nginx) Service
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: power-water-client
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      - server
+    networks:
+      - app-network
+
+volumes:
+  mongo-data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
