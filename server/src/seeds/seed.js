@@ -21,6 +21,7 @@ dotenv.config();
 const seedDatabase = async () => {
   try {
     const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/power_water_alerts';
+    console.log(`[Seed] Connecting to MongoDB: ${mongoURI}`);
     await mongoose.connect(mongoURI);
     console.log('[Seed] Connected to MongoDB...');
 
@@ -234,3 +235,4 @@ if (require.main === module) {
 }
 
 module.exports = seedDatabase;
+
