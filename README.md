@@ -66,7 +66,7 @@ This project is built directly against the **10 Minimum Software Requirements** 
 
 - **Frontend**: React (Vite), React Router, Lucide Icons, Pure Modern Vanilla CSS Design System (no heavy frameworks).
 - **Backend API**: Node.js, Express.js REST API.
-- **Database**: MongoDB with Mongoose ODM (persisted via Docker volumes).
+- **Database**: MongoDB Atlas with Mongoose ODM (cloud-hosted persistence).
 - **Authentication**: Stateless JSON Web Tokens (JWT) + BCrypt password hashing.
 - **DevOps & Containerization**: Docker & Docker Compose (multi-stage Nginx client build, Node Alpine server).
 
@@ -86,8 +86,8 @@ This project is built directly against the **10 Minimum Software Requirements** 
                                            │ Mongoose ODM
                                            ▼
                         ┌─────────────────────────────────────┐
-                        │       MongoDB Database Engine       │
-                        │    Port 27017 (Volume: mongo-data)  │
+                        │      MongoDB Atlas (Cloud)          │
+                        │       via MONGO_URI in .env         │
                         └─────────────────────────────────────┘
 ```
 
@@ -197,7 +197,7 @@ Make sure you have [Docker Desktop](https://www.docker.com/products/docker-deskt
 
    - **Frontend Web App**: [http://localhost:3000](http://localhost:3000)
    - **Backend Health Check**: [http://localhost:5000/api/health](http://localhost:5000/api/health)
-   - **MongoDB Service**: `localhost:27017`
+   - **Database**: MongoDB Atlas, configured through `MONGO_URI` in `.env`
 
 To stop the containers:
 
@@ -212,7 +212,7 @@ docker compose down
 #### Prerequisites:
 
 - Node.js (v18 or higher)
-- MongoDB running locally on port 27017
+- A MongoDB Atlas cluster and connection URI configured in `.env`
 
 #### 1. Backend Setup
 
@@ -244,7 +244,7 @@ In accordance with Section 2 of the assignment requirements, the team declares t
 
 | AI Tool                        | Prompt / Task Description                                                                                                                                   | Purpose in Project                                                                                                       | Verification & Modification Performed                                                                             |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| **Antigravity / Gemini** | *"Build the basic foundation of the system without building major functions that are reserved for team members, like docker files and folder structure."* | Generated modular folder structure, Docker multi-stage configurations, Docker Compose orchestration, and starter layout. | Reviewed all paths, verified Docker networking and volume mounts, customized area constants to Sri Lanka suburbs. |
+| **Antigravity / Gemini** | *"Build the basic foundation of the system without building major functions that are reserved for team members, like docker files and folder structure."* | Generated modular folder structure, Docker multi-stage configurations, Docker Compose orchestration, and starter layout. | Reviewed all paths, verified Docker networking and cloud MongoDB configuration, customized area constants to Sri Lanka suburbs. |
 | **Antigravity / Gemini** | *"Draft README file fulfilling all 10 criteria from the SE3090 Assignment 2 PDF."*                                                                        | Structured initial markdown documentation, checklist, and contribution split.                                            | Audited against marking scheme rubric, verified checklist items, and formatted command guides.                    |
 
 ---
