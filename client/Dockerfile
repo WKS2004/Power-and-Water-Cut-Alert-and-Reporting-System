@@ -8,8 +8,8 @@ WORKDIR /app
 # Copy dependency specifications
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install
+# Install exactly the versions recorded in package-lock.json.
+RUN npm ci
 
 # Copy client source code
 COPY . .
