@@ -61,13 +61,10 @@ const registerUser = async (req, res, next) => {
       });
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create user
+    // Create user (password is automatically hashed by User.js pre('save') hook)
     const user = await User.create({
       username: username.trim(),
-      password: hashedPassword,
+      password,
       email: email.trim().toLowerCase(),
       area,
       address: address.trim(),

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Zap, Shield, User, Menu, X, LogOut, LayoutDashboard } from 'lucide-react';
-import { checkHealth } from '../services/api';
+import { Zap, Shield, User, Menu, X, LogOut, LayoutDashboard, Bell, AlertTriangle } from 'lucide-react';
+import { checkHealth, getReportsApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 export default function Navbar() {
   const [apiOnline, setApiOnline] = useState(false);
+  const [areaAlertsCount, setAreaAlertsCount] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -21,10 +22,29 @@ export default function Navbar() {
         if (isMounted) setApiOnline(false);
       }
     };
+
+    const checkAreaAlerts = async () => {
+      if (user?.area && !isAdmin) {
+        try {
+          const res = await getReportsApi(user.area);
+          if (isMounted && res.data) {
+            const active = res.data.filter((r) => r.status === 'ongoing' || r.status === 'scheduled');
+            setAreaAlertsCount(active.length);
+          }
+        } catch {
+          // ignore background check failure
+        }
+      }
+    };
+
     verifyApi();
-    const interval = setInterval(verifyApi, 15000);
+    checkAreaAlerts();
+    const interval = setInterval(() => {
+      verifyApi();
+      checkAreaAlerts();
+    }, 15000);
     return () => { isMounted = false; clearInterval(interval); };
-  }, []);
+  }, [user?.area, isAdmin]);
 
   const handleLogout = () => {
     logout();
@@ -79,6 +99,24 @@ export default function Navbar() {
             ></span>
             <span>{apiOnline ? 'API ONLINE' : 'CONNECTING'}</span>
           </div>
+
+          {/* In-App Resident Active Alert Indicator (Requirement #3) */}
+          {!isAdmin && user?.area && areaAlertsCount > 0 && (
+            <Link
+              to="/dashboard"
+              className="api-telemetry-badge"
+              style={{
+                background: 'rgba(239, 68, 68, 0.15)',
+                border: '1px solid rgba(239, 68, 68, 0.35)',
+                color: '#f87171',
+                textDecoration: 'none',
+              }}
+              title={`Active/Upcoming Outage Alert for ${user.area}`}
+            >
+              <span className="pulse-circle" style={{ backgroundColor: '#f87171', boxShadow: '0 0 8px #f87171' }}></span>
+              <span>{areaAlertsCount} ACTIVE ALERT{areaAlertsCount > 1 ? 'S' : ''} IN YOUR AREA</span>
+            </Link>
+          )}
         </div>
 
         {/* Center: Desktop Navigation Pills */}
@@ -91,6 +129,49 @@ export default function Navbar() {
           {isAuthenticated ? (
             /* Logged-in user pill + logout button */
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              {/* Resident Notification Bell with Count */}
+              {!isAdmin && (
+                <Link
+                  to="/dashboard"
+                  title={areaAlertsCount > 0 ? `${areaAlertsCount} active cut(s) in your area` : 'No active cuts in your area'}
+                  style={{
+                    position: 'relative',
+                    background: 'var(--surface-container)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '0.35rem 0.55rem',
+                    color: areaAlertsCount > 0 ? '#f87171' : 'var(--on-surface-variant)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Bell size={15} />
+                  {areaAlertsCount > 0 && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: -4,
+                        right: -4,
+                        width: 16,
+                        height: 16,
+                        borderRadius: '50%',
+                        background: '#ef4444',
+                        color: '#fff',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        fontFamily: 'var(--font-mono)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 0 6px #ef4444',
+                      }}
+                    >
+                      {areaAlertsCount}
+                    </span>
+                  )}
+                </Link>
+              )}
               {/* User/Admin badge */}
               <div
                 style={{

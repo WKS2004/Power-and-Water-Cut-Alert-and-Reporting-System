@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Zap, Droplet, Clock, Plus, Filter, AlertCircle, CheckCircle,
-  X, ShieldAlert, MapPin, Send, RefreshCw, User,
+  X, ShieldAlert, MapPin, Send, RefreshCw, User, FastForward, FileText,
 } from 'lucide-react';
 import { AREAS } from '../constants/areas';
-import { getReportsApi, submitReportApi } from '../services/api';
+import { getReportsApi, submitReportApi, getMyReportsApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 /** Format seconds into HH:mm:ss countdown string */
@@ -16,9 +16,14 @@ function formatCountdown(totalSec) {
   return `${String(h).padStart(2, '0')}h : ${String(m).padStart(2, '0')}m : ${String(s).padStart(2, '0')}s`;
 }
 
-/** Derive progress % from startTime to endTime relative to now */
-function calcProgress(startTime, endTime) {
-  const now = Date.now();
+/** Compute simulated current timestamp honoring admin time-skip */
+function calcEffectiveNow(offsetMinutes = 0) {
+  return Date.now() + (offsetMinutes * 60 * 1000);
+}
+
+/** Derive progress % from startTime to endTime relative to simulated now */
+function calcProgress(startTime, endTime, offsetMinutes = 0) {
+  const now = calcEffectiveNow(offsetMinutes);
   const start = new Date(startTime).getTime();
   const end = new Date(endTime).getTime();
   if (now < start) return 0;
@@ -26,9 +31,10 @@ function calcProgress(startTime, endTime) {
   return Math.round(((now - start) / (end - start)) * 100);
 }
 
-/** Seconds remaining until a given ISO date string */
-function secondsUntil(isoDate) {
-  const remaining = Math.floor((new Date(isoDate).getTime() - Date.now()) / 1000);
+/** Seconds remaining until a given ISO date string relative to simulated now */
+function secondsUntil(isoDate, offsetMinutes = 0) {
+  const now = calcEffectiveNow(offsetMinutes);
+  const remaining = Math.floor((new Date(isoDate).getTime() - now) / 1000);
   return remaining > 0 ? remaining : 0;
 }
 
@@ -54,6 +60,9 @@ export default function UserDashboard() {
   // Use logged-in user's area as default filter
   const [selectedArea, setSelectedArea] = useState(user?.area || 'all');
   const [reports, setReports] = useState([]);
+  const [myReports, setMyReports] = useState([]);
+  const [activeTab, setActiveTab] = useState('alerts'); // 'alerts' | 'my-reports'
+  const [simulatedOffsetMinutes, setSimulatedOffsetMinutes] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
@@ -81,15 +90,34 @@ export default function UserDashboard() {
     try {
       const res = await getReportsApi(selectedArea);
       setReports(res.data || []);
+      if (typeof res.simulatedOffsetMinutes === 'number') {
+        setSimulatedOffsetMinutes(res.simulatedOffsetMinutes);
+      }
     } catch (err) {
-      setLoadError('Could not load live data. Showing local cache.');
+      setLoadError(err.message || 'Could not load live data. Please check your connection.');
       setReports([]);
     } finally {
       setLoading(false);
     }
   }, [selectedArea]);
 
-  useEffect(() => { fetchReports(); }, [fetchReports]);
+  // ── Fetch user's own submitted reports ──────────────────────────────────────
+  const fetchMyReports = useCallback(async () => {
+    try {
+      const res = await getMyReportsApi();
+      setMyReports(res.data || []);
+      if (typeof res.simulatedOffsetMinutes === 'number') {
+        setSimulatedOffsetMinutes(res.simulatedOffsetMinutes);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchReports();
+    fetchMyReports();
+  }, [fetchReports, fetchMyReports]);
 
   // ── Featured alert (top ongoing for user area, else top scheduled) ────────
   const featuredAlert = React.useMemo(() => {
@@ -101,12 +129,12 @@ export default function UserDashboard() {
   // ── Live countdown ticker driven by featuredAlert's estimatedEndTime ──────
   useEffect(() => {
     if (!featuredAlert) { setCountdownSeconds(0); return; }
-    setCountdownSeconds(secondsUntil(featuredAlert.estimatedEndTime));
+    setCountdownSeconds(secondsUntil(featuredAlert.estimatedEndTime, simulatedOffsetMinutes));
     const timer = setInterval(() => {
-      setCountdownSeconds(secondsUntil(featuredAlert.estimatedEndTime));
+      setCountdownSeconds(secondsUntil(featuredAlert.estimatedEndTime, simulatedOffsetMinutes));
     }, 1000);
     return () => clearInterval(timer);
-  }, [featuredAlert]);
+  }, [featuredAlert, simulatedOffsetMinutes]);
 
   // Active and upcoming alerts (exclude resolved)
   const visibleAlerts = reports.filter((r) => r.status !== 'resolved');
@@ -150,7 +178,9 @@ export default function UserDashboard() {
         setFormData({ type: 'power', area: user?.area || AREAS[0], startTime: '', estimatedEndTime: '', description: '' });
         setFormValidationErrors({});
         fetchReports();
-      }, 1800);
+        fetchMyReports();
+        setActiveTab('my-reports');
+      }, 1500);
     } catch (err) {
       setFormError(err.message || 'Failed to submit report. Please try again.');
     } finally {
@@ -170,7 +200,7 @@ export default function UserDashboard() {
     <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
 
       {/* ── 1. Header & Controls ─────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '2rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.25rem' }}>
             <h1 style={{ fontSize: '1.75rem', margin: 0 }}>Resident Outage Dashboard</h1>
@@ -202,7 +232,7 @@ export default function UserDashboard() {
 
           {/* Refresh */}
           <button
-            onClick={fetchReports}
+            onClick={() => { fetchReports(); fetchMyReports(); }}
             disabled={loading}
             style={{ background: 'var(--surface-container)', border: '1px solid rgba(255,255,255,0.06)', color: 'var(--on-surface-variant)', borderRadius: 'var(--radius-md)', padding: '0.55rem 0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '13px' }}
           >
@@ -216,6 +246,16 @@ export default function UserDashboard() {
           </button>
         </div>
       </div>
+
+      {/* Demo Time-Skip Sync Indicator Banner */}
+      {simulatedOffsetMinutes !== 0 && (
+        <div style={{ background: 'rgba(0, 162, 230, 0.12)', border: '1px solid rgba(0, 162, 230, 0.3)', borderRadius: 'var(--radius-md)', padding: '0.6rem 1rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.6rem', color: 'var(--secondary)', fontSize: '12px', fontFamily: 'var(--font-mono)' }}>
+          <FastForward size={15} />
+          <span>
+            <strong>DEMO TIME-SKIP SIMULATOR ACTIVE:</strong> Clock fast-forwarded by +{simulatedOffsetMinutes} minutes. Countdowns and statuses are synchronized with simulated reference time.
+          </span>
+        </div>
+      )}
 
       {/* Load error banner */}
       {loadError && (
@@ -265,7 +305,7 @@ export default function UserDashboard() {
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.75rem', fontWeight: 700, color: featuredAlert.status === 'ongoing' ? '#f87171' : 'var(--primary)', letterSpacing: '0.04em' }}>
                   {featuredAlert.status === 'ongoing'
                     ? formatCountdown(countdownSeconds)
-                    : formatCountdown(secondsUntil(featuredAlert.startTime))}
+                    : formatCountdown(secondsUntil(featuredAlert.startTime, simulatedOffsetMinutes))}
                 </div>
               </div>
             </div>
@@ -283,7 +323,7 @@ export default function UserDashboard() {
           {featuredAlert.status === 'ongoing' && (
             <div>
               <div style={{ width: '100%', height: '6px', background: 'var(--surface-container-high)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
-                <div style={{ width: `${calcProgress(featuredAlert.startTime, featuredAlert.estimatedEndTime)}%`, height: '100%', background: 'linear-gradient(90deg, rgba(248,113,113,0.6), #f87171)', borderRadius: 'var(--radius-full)', transition: 'width 1s linear' }} />
+                <div style={{ width: `${calcProgress(featuredAlert.startTime, featuredAlert.estimatedEndTime, simulatedOffsetMinutes)}%`, height: '100%', background: 'linear-gradient(90deg, rgba(248,113,113,0.6), #f87171)', borderRadius: 'var(--radius-full)', transition: 'width 1s linear' }} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--outline)', marginTop: '0.35rem', fontFamily: 'var(--font-mono)' }}>
                 <span>Started {formatDateTime(featuredAlert.startTime)}</span>
@@ -300,116 +340,259 @@ export default function UserDashboard() {
         </div>
       )}
 
-      {/* ── 3. Active & Upcoming Alerts List ─────────────────────────────────── */}
-      <div className="stitch-card" style={{ marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <h2 style={{ fontSize: '1.15rem', margin: 0 }}>Active & Upcoming Alerts</h2>
-            <span style={{ background: 'var(--surface-container-high)', color: 'var(--on-surface-variant)', padding: '0.15rem 0.55rem', borderRadius: 'var(--radius-full)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
-              {visibleAlerts.length}
-            </span>
-          </div>
-        </div>
+      {/* ── View Navigation Tabs (Alerts vs My Submissions) ────────────────── */}
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('alerts')}
+          style={{
+            padding: '0.5rem 1rem',
+            borderRadius: 'var(--radius-md)',
+            border: activeTab === 'alerts' ? '1px solid var(--primary)' : '1px solid transparent',
+            background: activeTab === 'alerts' ? 'var(--surface-container-high)' : 'transparent',
+            color: activeTab === 'alerts' ? 'var(--on-surface)' : 'var(--on-surface-variant)',
+            fontWeight: 600,
+            fontSize: '13px',
+            fontFamily: 'var(--font-headline)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+          }}
+        >
+          <span>Live Outage Alerts</span>
+          <span style={{ background: 'var(--surface-container-highest)', padding: '0.1rem 0.45rem', borderRadius: 'var(--radius-full)', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+            {visibleAlerts.length}
+          </span>
+        </button>
 
-        {loading ? (
-          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--on-surface-variant)', fontSize: '13px', fontFamily: 'var(--font-mono)' }}>
-            Loading live telemetry data...
+        <button
+          type="button"
+          onClick={() => setActiveTab('my-reports')}
+          style={{
+            padding: '0.5rem 1rem',
+            borderRadius: 'var(--radius-md)',
+            border: activeTab === 'my-reports' ? '1px solid var(--secondary)' : '1px solid transparent',
+            background: activeTab === 'my-reports' ? 'var(--surface-container-high)' : 'transparent',
+            color: activeTab === 'my-reports' ? 'var(--on-surface)' : 'var(--on-surface-variant)',
+            fontWeight: 600,
+            fontSize: '13px',
+            fontFamily: 'var(--font-headline)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+          }}
+        >
+          <FileText size={14} />
+          <span>My Submissions</span>
+          {myReports.length > 0 && (
+            <span style={{ background: 'rgba(0, 162, 230, 0.15)', color: 'var(--secondary)', padding: '0.1rem 0.45rem', borderRadius: 'var(--radius-full)', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+              {myReports.length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* ── Tab 1: Active & Upcoming Alerts List ─────────────────────────────────── */}
+      {activeTab === 'alerts' && (
+        <>
+          <div className="stitch-card" style={{ marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <h2 style={{ fontSize: '1.15rem', margin: 0 }}>Active & Upcoming Alerts</h2>
+                <span style={{ background: 'var(--surface-container-high)', color: 'var(--on-surface-variant)', padding: '0.15rem 0.55rem', borderRadius: 'var(--radius-full)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+                  {visibleAlerts.length}
+                </span>
+              </div>
+            </div>
+
+            {loading ? (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--on-surface-variant)', fontSize: '13px', fontFamily: 'var(--font-mono)' }}>
+                Loading live telemetry data...
+              </div>
+            ) : visibleAlerts.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {visibleAlerts.map((alert) => {
+                  const meta = statusMeta(alert.status);
+                  return (
+                    <div
+                      key={alert._id}
+                      style={{
+                        background: 'var(--surface-container)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '1.25rem',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '1rem',
+                        border: '1px solid rgba(255, 255, 255, 0.04)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
+                        <div style={{ width: 40, height: 40, borderRadius: 'var(--radius-md)', background: alert.type === 'power' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(0, 162, 230, 0.12)', color: alert.type === 'power' ? 'var(--primary)' : 'var(--secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          {alert.type === 'power' ? <Zap size={20} /> : <Droplet size={20} />}
+                        </div>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem', flexWrap: 'wrap' }}>
+                            <span className={`stitch-badge ${alert.type === 'power' ? 'badge-power' : 'badge-water'}`}>
+                              {alert.type === 'power' ? 'CEB POWER' : 'NWSDB WATER'}
+                            </span>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--on-surface-variant)' }}>{alert.area}</span>
+                            <span className={`stitch-badge ${alert.status === 'ongoing' ? 'badge-live' : 'badge-scheduled'}`} style={{ color: meta.color }}>
+                              {alert.status === 'ongoing' && <span className="pulse-circle" style={{ width: 5, height: 5, backgroundColor: '#f87171', display: 'inline-block', marginRight: 4 }} />}
+                              {meta.label}
+                            </span>
+                            {alert.source === 'user' && (
+                              <span style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface-variant)', fontSize: '10px', padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)' }}>
+                                <User size={9} style={{ display: 'inline', marginRight: 3 }} />COMMUNITY
+                              </span>
+                            )}
+                          </div>
+                          {alert.description && (
+                            <p style={{ color: 'var(--on-surface-variant)', fontSize: '12px', margin: 0, maxWidth: '480px' }}>{alert.description}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontSize: '11px', color: 'var(--outline)', textTransform: 'uppercase' }}>Expected Restored</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 600 }}>
+                          {formatDateTime(alert.estimatedEndTime)}
+                        </div>
+                        {alert.status === 'ongoing' && (
+                          <div style={{ fontSize: '12px', color: '#f87171', marginTop: '0.2rem', fontFamily: 'var(--font-mono)' }}>
+                            {formatCountdown(secondsUntil(alert.estimatedEndTime, simulatedOffsetMinutes))} left
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ padding: '3rem 1.5rem', textAlign: 'center', background: 'rgba(10, 14, 24, 0.4)', borderRadius: 'var(--radius-md)' }}>
+                <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--surface-container)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.75rem' }}>
+                  <CheckCircle size={24} color="var(--tertiary)" />
+                </div>
+                <h3 style={{ fontSize: '1.1rem', marginBottom: '0.35rem' }}>No active outages reported{selectedArea !== 'all' ? ` for ${selectedArea}` : ''}.</h3>
+                <p style={{ color: 'var(--on-surface-variant)', fontSize: '13px', maxWidth: '420px', margin: '0 auto' }}>
+                  When official cuts are published by CEB/NWSDB or community reports are verified, they will appear here.
+                </p>
+              </div>
+            )}
           </div>
-        ) : visibleAlerts.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {visibleAlerts.map((alert) => {
-              const meta = statusMeta(alert.status);
-              return (
+
+          {/* ── Resolved Alerts (Collapsible) ─────────────────────────────────── */}
+          {resolvedAlerts.length > 0 && (
+            <div className="stitch-card" style={{ marginBottom: '1.5rem', opacity: 0.7 }}>
+              <h3 style={{ fontSize: '1rem', color: 'var(--on-surface-variant)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <CheckCircle size={16} color="var(--tertiary)" /> Recently Resolved ({resolvedAlerts.length})
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {resolvedAlerts.map((alert) => (
+                  <div key={alert._id} style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: '0.85rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      {alert.type === 'power' ? <Zap size={16} color="var(--outline)" /> : <Droplet size={16} color="var(--outline)" />}
+                      <div>
+                        <span style={{ fontSize: '13px', color: 'var(--on-surface-variant)' }}>{alert.type === 'power' ? 'Power Cut' : 'Water Cut'} — {alert.area}</span>
+                        <span className="stitch-badge" style={{ marginLeft: '0.5rem', background: 'rgba(86,229,169,0.1)', color: 'var(--tertiary)', fontSize: '10px' }}>RESOLVED</span>
+                      </div>
+                    </div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--outline)' }}>
+                      Restored {formatDateTime(alert.estimatedEndTime)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Tab 2: My Submitted Reports ────────────────────────────────────────── */}
+      {activeTab === 'my-reports' && (
+        <div className="stitch-card" style={{ marginBottom: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+            <div>
+              <h2 style={{ fontSize: '1.15rem', margin: 0 }}>My Submitted Reports</h2>
+              <p style={{ color: 'var(--on-surface-variant)', fontSize: '12px', margin: '0.2rem 0 0' }}>
+                Track the status of interruptions you reported. Verified reports are broadcast islandwide.
+              </p>
+            </div>
+            <button onClick={() => setModalOpen(true)} className="btn-primary" style={{ padding: '0.5rem 0.9rem', fontSize: '12px' }}>
+              <Plus size={14} />
+              <span>New Report</span>
+            </button>
+          </div>
+
+          {myReports.length === 0 ? (
+            <div style={{ padding: '3rem 1.5rem', textAlign: 'center', background: 'rgba(10, 14, 24, 0.4)', borderRadius: 'var(--radius-md)' }}>
+              <FileText size={32} color="var(--outline)" style={{ margin: '0 auto 0.5rem' }} />
+              <h3 style={{ fontSize: '1.1rem', marginBottom: '0.35rem' }}>No reports submitted yet.</h3>
+              <p style={{ color: 'var(--on-surface-variant)', fontSize: '13px', maxWidth: '420px', margin: '0 auto 1rem' }}>
+                Experiencing an unlisted power outage or water cutoff? Report it to alert authorities and your neighborhood.
+              </p>
+              <button onClick={() => setModalOpen(true)} className="btn-primary" style={{ padding: '0.5rem 1rem', fontSize: '13px' }}>
+                <Plus size={15} /> Submit First Report
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {myReports.map((report) => (
                 <div
-                  key={alert._id}
+                  key={report._id}
                   style={{
                     background: 'var(--surface-container)',
                     borderRadius: 'var(--radius-md)',
-                    padding: '1.25rem',
+                    padding: '1.2rem',
+                    border: '1px solid rgba(255, 255, 255, 0.04)',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     flexWrap: 'wrap',
                     gap: '1rem',
-                    border: '1px solid rgba(255, 255, 255, 0.04)',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
-                    <div style={{ width: 40, height: 40, borderRadius: 'var(--radius-md)', background: alert.type === 'power' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(0, 162, 230, 0.12)', color: alert.type === 'power' ? 'var(--primary)' : 'var(--secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      {alert.type === 'power' ? <Zap size={20} /> : <Droplet size={20} />}
+                    <div style={{ width: 40, height: 40, borderRadius: 'var(--radius-md)', background: report.type === 'power' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(0, 162, 230, 0.12)', color: report.type === 'power' ? 'var(--primary)' : 'var(--secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {report.type === 'power' ? <Zap size={20} /> : <Droplet size={20} />}
                     </div>
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem', flexWrap: 'wrap' }}>
-                        <span className={`stitch-badge ${alert.type === 'power' ? 'badge-power' : 'badge-water'}`}>
-                          {alert.type === 'power' ? 'CEB POWER' : 'NWSDB WATER'}
+                        <span className={`stitch-badge ${report.type === 'power' ? 'badge-power' : 'badge-water'}`}>
+                          {report.type === 'power' ? 'POWER CUT' : 'WATER CUT'}
                         </span>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--on-surface-variant)' }}>{alert.area}</span>
-                        <span className={`stitch-badge ${alert.status === 'ongoing' ? 'badge-live' : 'badge-scheduled'}`} style={{ color: meta.color }}>
-                          {alert.status === 'ongoing' && <span className="pulse-circle" style={{ width: 5, height: 5, backgroundColor: '#f87171', display: 'inline-block', marginRight: 4 }} />}
-                          {meta.label}
-                        </span>
-                        {alert.source === 'user' && (
-                          <span style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--on-surface-variant)', fontSize: '10px', padding: '0.1rem 0.4rem', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)' }}>
-                            <User size={9} style={{ display: 'inline', marginRight: 3 }} />COMMUNITY
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--on-surface-variant)' }}>{report.area}</span>
+                        {report.approved ? (
+                          <span className="stitch-badge" style={{ background: 'rgba(86, 229, 169, 0.15)', color: 'var(--tertiary)' }}>
+                            <CheckCircle size={10} style={{ marginRight: 3 }} /> APPROVED & BROADCAST
+                          </span>
+                        ) : (
+                          <span className="stitch-badge" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--primary)' }}>
+                            <Clock size={10} style={{ marginRight: 3 }} /> PENDING AUTHORITY REVIEW
                           </span>
                         )}
                       </div>
-                      {alert.description && (
-                        <p style={{ color: 'var(--on-surface-variant)', fontSize: '12px', margin: 0, maxWidth: '480px' }}>{alert.description}</p>
+                      {report.description && (
+                        <p style={{ color: 'var(--on-surface-variant)', fontSize: '12px', margin: '0 0 0.35rem' }}>{report.description}</p>
                       )}
+                      <div style={{ fontSize: '11px', color: 'var(--outline)', fontFamily: 'var(--font-mono)' }}>
+                        Started: {formatDateTime(report.startTime)} → Expected: {formatDateTime(report.estimatedEndTime)}
+                      </div>
                     </div>
                   </div>
 
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: '11px', color: 'var(--outline)', textTransform: 'uppercase' }}>Expected Restored</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 600 }}>
-                      {formatDateTime(alert.estimatedEndTime)}
-                    </div>
-                    {alert.status === 'ongoing' && (
-                      <div style={{ fontSize: '12px', color: '#f87171', marginTop: '0.2rem', fontFamily: 'var(--font-mono)' }}>
-                        {formatCountdown(secondsUntil(alert.estimatedEndTime))} left
-                      </div>
-                    )}
+                    <span className="stitch-badge" style={{ background: 'var(--surface-container-high)', color: 'var(--on-surface-variant)', fontSize: '10px' }}>
+                      Status: {report.status.toUpperCase()}
+                    </span>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div style={{ padding: '3rem 1.5rem', textAlign: 'center', background: 'rgba(10, 14, 24, 0.4)', borderRadius: 'var(--radius-md)' }}>
-            <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--surface-container)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.75rem' }}>
-              <CheckCircle size={24} color="var(--tertiary)" />
+              ))}
             </div>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '0.35rem' }}>No active outages reported{selectedArea !== 'all' ? ` for ${selectedArea}` : ''}.</h3>
-            <p style={{ color: 'var(--on-surface-variant)', fontSize: '13px', maxWidth: '420px', margin: '0 auto' }}>
-              When official cuts are published by CEB/NWSDB or community reports are verified, they will appear here.
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* ── 4. Resolved Alerts (Collapsible) ─────────────────────────────────── */}
-      {resolvedAlerts.length > 0 && (
-        <div className="stitch-card" style={{ marginBottom: '1.5rem', opacity: 0.7 }}>
-          <h3 style={{ fontSize: '1rem', color: 'var(--on-surface-variant)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <CheckCircle size={16} color="var(--tertiary)" /> Recently Resolved ({resolvedAlerts.length})
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {resolvedAlerts.map((alert) => (
-              <div key={alert._id} style={{ background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', padding: '0.85rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  {alert.type === 'power' ? <Zap size={16} color="var(--outline)" /> : <Droplet size={16} color="var(--outline)" />}
-                  <div>
-                    <span style={{ fontSize: '13px', color: 'var(--on-surface-variant)' }}>{alert.type === 'power' ? 'Power Cut' : 'Water Cut'} — {alert.area}</span>
-                    <span className="stitch-badge" style={{ marginLeft: '0.5rem', background: 'rgba(86,229,169,0.1)', color: 'var(--tertiary)', fontSize: '10px' }}>RESOLVED</span>
-                  </div>
-                </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--outline)' }}>
-                  Restored {formatDateTime(alert.estimatedEndTime)}
-                </div>
-              </div>
-            ))}
-          </div>
+          )}
         </div>
       )}
 

@@ -33,16 +33,22 @@ const getReports = async (req, res, next) => {
       .populate('submittedBy', 'username address area')
       .sort({ startTime: 1 });
 
-    // Attach calculated status to each report
+    // Attach calculated status and remainingMinutes to each report
     const data = reports.map((r) => {
       const obj = r.toObject({ virtuals: true });
       obj.status = r.calculateStatus(referenceTime);
+      const end = new Date(r.estimatedEndTime);
+      obj.remainingMinutes = referenceTime >= end ? 0 : Math.max(0, Math.round((end - referenceTime) / (1000 * 60)));
       return obj;
     });
+
+    const offsetMinutes = Math.round((referenceTime.getTime() - Date.now()) / (60 * 1000));
 
     res.status(200).json({
       success: true,
       count: data.length,
+      simulatedTime: referenceTime,
+      simulatedOffsetMinutes: offsetMinutes,
       data,
     });
   } catch (error) {
@@ -143,8 +149,40 @@ const getReportById = async (req, res, next) => {
   }
 };
 
+// @desc    Get reports submitted by current logged-in resident
+// @route   GET /api/reports/user/me
+// @access  Private (User)
+const getMyReports = async (req, res, next) => {
+  try {
+    const referenceTime = getReferenceTime();
+    const reports = await Report.find({ submittedBy: req.user.id })
+      .sort({ createdAt: -1 });
+
+    const data = reports.map((r) => {
+      const obj = r.toObject({ virtuals: true });
+      obj.status = r.calculateStatus(referenceTime);
+      const end = new Date(r.estimatedEndTime);
+      obj.remainingMinutes = referenceTime >= end ? 0 : Math.max(0, Math.round((end - referenceTime) / (1000 * 60)));
+      return obj;
+    });
+
+    const offsetMinutes = Math.round((referenceTime.getTime() - Date.now()) / (60 * 1000));
+
+    res.status(200).json({
+      success: true,
+      count: data.length,
+      simulatedTime: referenceTime,
+      simulatedOffsetMinutes: offsetMinutes,
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getReports,
   createReport,
   getReportById,
+  getMyReports,
 };

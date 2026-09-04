@@ -31,9 +31,8 @@ const seedDatabase = async () => {
     await Report.deleteMany({});
     console.log('[Seed] Cleared existing Admin, User, and Report collections.');
 
-    // --- Create admin account ---
-    const adminPass = await bcrypt.hash('admin123', 10);
-    const admin = await Admin.create({ username: 'admin', password: adminPass });
+    // --- Create admin account (Admin.js pre-save hook handles hashing) ---
+    const admin = await Admin.create({ username: 'admin', password: 'admin123' });
     console.log(`[Seed] Admin created: admin / admin123`);
 
     // --- Create sample resident users (one per a few areas) ---

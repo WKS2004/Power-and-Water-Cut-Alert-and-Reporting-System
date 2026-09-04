@@ -23,9 +23,24 @@ export async function apiRequest(endpoint, options = {}) {
       headers,
     });
 
-    const data = await response.json();
+    let data;
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      try {
+        data = await response.json();
+      } catch {
+        data = { message: `Malformed JSON response (status ${response.status})` };
+      }
+    } else {
+      const text = await response.text();
+      data = { message: text || `Request failed with status ${response.status}` };
+    }
 
     if (!response.ok) {
+      // If unauthorized, ensure corrupted or expired token is cleared
+      if (response.status === 401 && token) {
+        localStorage.removeItem('token');
+      }
       throw new Error(data.message || `Request failed with status ${response.status}`);
     }
 
@@ -59,6 +74,8 @@ export const getReportsApi = (area = 'all') => {
   const query = area && area !== 'all' ? `?area=${encodeURIComponent(area)}` : '';
   return apiRequest(`/reports${query}`);
 };
+
+export const getMyReportsApi = () => apiRequest('/reports/user/me');
 
 export const submitReportApi = (reportData) =>
   apiRequest('/reports', {

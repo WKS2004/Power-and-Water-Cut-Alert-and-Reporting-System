@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Zap, Droplet, Clock, ShieldCheck, AlertTriangle, ArrowRight, MapPin, Activity } from 'lucide-react';
 import { AREAS } from '../constants/areas';
+import ProblemExplanation from '../components/ProblemExplanation';
 
 export default function LandingPage() {
   return (
@@ -125,50 +126,10 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 2. Sri Lankan Problem Framing Card (Requirement #2) */}
-      <section style={{ maxWidth: '1040px', margin: '0 auto 3rem' }}>
-        <div
-          className="stitch-card"
-          style={{
-            position: 'relative',
-            borderLeft: '4px solid var(--primary-container)',
-            overflow: 'hidden',
-          }}
-        >
-          <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'flex-start' }}>
-            <div
-              style={{
-                width: 48,
-                height: 48,
-                borderRadius: 'var(--radius-md)',
-                background: 'var(--surface-container-highest)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--primary-container)',
-                flexShrink: 0,
-              }}
-            >
-              <AlertTriangle size={24} />
-            </div>
-
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                <h2 style={{ fontSize: '1.25rem' }}>The Sri Lankan Outage Reality</h2>
-                <span className="stitch-badge badge-power">MUNICIPAL CONTEXT</span>
-              </div>
-              <p style={{ color: 'var(--on-surface-variant)', marginBottom: '0.75rem', lineHeight: 1.6 }}>
-                Scheduled grid maintenance and unscheduled disruptions by the{' '}
-                <strong style={{ color: 'var(--on-surface)' }}>Ceylon Electricity Board (CEB)</strong> and{' '}
-                <strong style={{ color: 'var(--on-surface)' }}>National Water Supply & Drainage Board (NWSB)</strong> frequently impact households, small enterprises, schools, and hospitals across the island.
-              </p>
-              <p style={{ color: 'var(--on-surface-variant)', opacity: 0.85, lineHeight: 1.6 }}>
-                Residents often lack clear restoration windows or have to rely on fragmented social media notices. This platform provides single-click visibility for your exact neighbourhood, live countdowns to service restoration, and a direct line to report local pipe bursts and grid failures.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
+      {/* 2. Sri Lankan Problem Framing & Civic Impact (Requirement #2 & #10) */}
+      <div style={{ maxWidth: '1040px', margin: '0 auto' }}>
+        <ProblemExplanation />
+      </div>
 
       {/* 3. 4 Clean Feature Cards in 2x2 Grid */}
       <section style={{ maxWidth: '1040px', margin: '0 auto 3.5rem' }}>

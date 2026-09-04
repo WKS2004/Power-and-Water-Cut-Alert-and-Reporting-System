@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const mongoose = require('mongoose');
 const connectDB = require('./config/db');
 const errorHandler = require('./middleware/errorHandler');
 
@@ -14,9 +15,23 @@ const app = express();
 
 // Middleware
 const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+const allowedOrigins = [
+  clientUrl,
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+];
 app.use(
   cors({
-    origin: [clientUrl, 'http://localhost:3000', 'http://127.0.0.1:3000'],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+        return callback(null, true);
+      }
+      return callback(null, true); // Permissive in dev/hackathon environment
+    },
     credentials: true,
   })
 );
@@ -25,8 +40,10 @@ app.use(express.urlencoded({ extended: true }));
 
 // Health check endpoint (for container checks, deployment validation, and frontend status ping)
 app.get('/api/health', (req, res) => {
+  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
   res.status(200).json({
     status: 'ok',
+    database: dbStatus,
     message: 'Sri Lanka Power & Water Cut Alert and Reporting System API is running smoothly.',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
