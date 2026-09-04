@@ -1,17 +1,24 @@
 services:
-  # Database Service
-  mongo:
-    image: mongo:6.0
-    container_name: power-water-mongo
-    restart: always
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo-data:/data/db
-    environment:
-      - MONGO_INITDB_DATABASE=power_water_alerts
-    networks:
-      - app-network
+  # Local MongoDB is intentionally disabled. The application uses the cloud
+  # MongoDB connection supplied through MONGO_URI in .env.
+  # mongo:
+  #   image: mongo:6.0
+  #   container_name: power-water-mongo
+  #   restart: always
+  #   ports:
+  #     - "27017:27017"
+  #   volumes:
+  #     - mongo-data:/data/db
+  #   environment:
+  #     MONGO_INITDB_DATABASE: ${MONGO_DB:-power_water_alerts}
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" | grep 1"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 10s
+  #   networks:
+  #     - app-network
 
   # Backend Express API Service
   server:
@@ -21,14 +28,20 @@ services:
     container_name: power-water-server
     restart: always
     ports:
-      - "5000:5000"
+      - "${PORT:-5000}:5000"
     environment:
-      - PORT=5000
-      - MONGO_URI=mongodb://mongo:27017/power_water_alerts
-      - JWT_SECRET=supersecretjwtkey_change_in_production
-      - CLIENT_URL=http://localhost:3000
-    depends_on:
-      - mongo
+      PORT: 5000
+      # Cloud MongoDB URI supplied through the root .env file.
+      MONGO_URI: ${MONGO_URI:?MONGO_URI must be set in .env}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
+      NODE_ENV: ${NODE_ENV:-production}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:5000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - app-network
 
@@ -42,13 +55,14 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      - server
+      server:
+        condition: service_healthy
     networks:
       - app-network
 
-volumes:
-  mongo-data:
-    driver: local
+# volumes:
+#   mongo-data:
+#     driver: local
 
 networks:
   app-network:
