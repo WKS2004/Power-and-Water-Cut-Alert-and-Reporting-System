@@ -1,7 +1,8 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Zap, Droplet, Clock, ShieldCheck, AlertTriangle, ArrowRight, MapPin } from 'lucide-react';
+import { Zap, Droplet, Clock, ShieldCheck, ArrowRight, MapPin } from 'lucide-react';
 import { AREAS } from '../constants/areas';
+import ProblemExplanation from '../components/ProblemExplanation';
 
 export default function LandingPage() {
   return (
@@ -45,23 +46,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Sri Lankan Problem Statement (Requirement #2 from Specification) */}
-      <section className="card mb-3" style={{ borderLeft: '4px solid var(--power-amber)' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
-          <div style={{ padding: '0.5rem', borderRadius: '8px', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--power-amber)' }}>
-            <AlertTriangle size={24} />
-          </div>
-          <div>
-            <h3 style={{ marginBottom: '0.5rem' }}>The Sri Lankan Outage Reality</h3>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
-              Scheduled grid maintenance and unscheduled disruptions by the <strong>Ceylon Electricity Board (CEB)</strong> and <strong>National Water Supply & Drainage Board (NWSB)</strong> frequently impact households, small enterprises, schools, and hospitals across the island.
-            </p>
-            <p style={{ color: 'var(--text-secondary)' }}>
-              Residents often lack clear restoration windows or have to rely on fragmented social media notices. This platform provides single-click visibility for your exact neighbourhood, live countdowns to service restoration, and a direct line to report local pipe bursts and grid failures.
-            </p>
-          </div>
-        </div>
-      </section>
+      {/* Sri Lankan Problem Statement (Requirement #2 & #10 - Owned by Member 1) */}
+      <ProblemExplanation />
+
 
       {/* Features Overview */}
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem', marginBottom: '3rem' }}>
