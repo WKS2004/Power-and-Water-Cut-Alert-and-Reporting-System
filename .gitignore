@@ -38,3 +38,7 @@ mongo-data/
 # Testing & Coverage
 coverage/
 .nyc_output/
+
+# Stitch MCP secret config
+.agents/plugins/**/mcp_config.json
+.agent/plugins/**/mcp_config.json
