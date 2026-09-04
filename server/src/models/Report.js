@@ -9,7 +9,7 @@ const { AREAS } = require('../config/areas');
  * - type: "water" | "power"
  * - area: from predefined AREAS enum
  * - startTime: scheduled or actual start datetime
- * - estimatedEndTime: expected restoration datetime
+ * - estimatedEndTime: expected restoration datetime (must be > startTime)
  * - source: "admin" | "user"
  * - description: optional details/notes
  * - submittedBy: reference to User (only if source is "user")
@@ -23,7 +23,10 @@ const reportSchema = new mongoose.Schema(
     type: {
       type: String,
       required: [true, 'Cut type is required (power or water)'],
-      enum: ['power', 'water'],
+      enum: {
+        values: ['power', 'water'],
+        message: '{VALUE} is not a valid cut type. Must be power or water.',
+      },
     },
     area: {
       type: String,
@@ -40,6 +43,13 @@ const reportSchema = new mongoose.Schema(
     estimatedEndTime: {
       type: Date,
       required: [true, 'Estimated end time is required'],
+      validate: {
+        validator: function (value) {
+          if (!this.startTime || !value) return true;
+          return new Date(value).getTime() > new Date(this.startTime).getTime();
+        },
+        message: 'Estimated restoration time must be strictly after the start time',
+      },
     },
     source: {
       type: String,
@@ -51,6 +61,7 @@ const reportSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: '',
+      maxlength: [500, 'Description cannot exceed 500 characters'],
     },
     submittedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -64,12 +75,31 @@ const reportSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    toJSON: { virtuals: true },
+    toJSON: {
+      virtuals: true,
+      transform: function (doc, ret) {
+        delete ret.__v;
+        return ret;
+      },
+    },
     toObject: { virtuals: true },
   }
 );
 
-// Virtual status helper: dynamically derives status relative to a reference time
+// Virtual status derived against current system clock
+reportSchema.virtual('status').get(function () {
+  return this.calculateStatus(new Date());
+});
+
+// Virtual remaining minutes until restoration (0 if already passed)
+reportSchema.virtual('remainingMinutes').get(function () {
+  const now = new Date();
+  const end = new Date(this.estimatedEndTime);
+  if (now >= end) return 0;
+  return Math.max(0, Math.round((end - now) / (1000 * 60)));
+});
+
+// Instance method: dynamically derives status relative to an arbitrary reference time (supporting Demo Time-Skip)
 reportSchema.methods.calculateStatus = function (referenceTime = new Date()) {
   const now = new Date(referenceTime);
   const start = new Date(this.startTime);
@@ -85,3 +115,4 @@ reportSchema.methods.calculateStatus = function (referenceTime = new Date()) {
 };
 
 module.exports = mongoose.model('Report', reportSchema);
+
