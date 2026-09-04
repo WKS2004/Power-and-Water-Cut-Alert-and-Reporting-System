@@ -1,122 +1,118 @@
 const Report = require('../models/Report');
-const User = require('../models/User');
 const { AREAS } = require('../config/areas');
 
-// In-memory simulated time offset in milliseconds (for demo fast-forward)
+/**
+ * Admin Controller
+ * 
+ * In-memory simulated time offset in milliseconds (for demo fast-forward).
+ * Exported via getSimulatedTimeOffset() for use in reportController.
+ */
 let simulatedTimeOffsetMs = 0;
 
-/**
- * Returns the effective reference time (real time + simulated demo offset)
- */
-const getSimulatedTime = () => {
-  return new Date(Date.now() + simulatedTimeOffsetMs);
-};
+/** Exported getter so reportController can sync reference time */
+const getSimulatedTimeOffset = () => simulatedTimeOffsetMs;
 
-// @desc    Issue official administrative outage alert
+// Utility: current reference time
+const getReferenceTime = () => new Date(Date.now() + simulatedTimeOffsetMs);
+
+// @desc    Issue official administrative outage alert (live immediately, no approval needed)
 // @route   POST /api/admin/alerts
 // @access  Private (Admin Only)
 const createOfficialAlert = async (req, res, next) => {
   try {
     const { type, area, startTime, estimatedEndTime, description } = req.body;
 
-    // 1. Required fields check
+    // Validate required fields
     if (!type || !area || !startTime || !estimatedEndTime) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide all required fields: type, area, startTime, and estimatedEndTime.',
+        message: 'Type, area, start time, and estimated end time are all required.',
       });
     }
 
-    // 2. Type validation
     if (!['power', 'water'].includes(type)) {
       return res.status(400).json({
         success: false,
-        message: 'Type must be either "power" or "water".',
+        message: 'Cut type must be either "power" or "water".',
       });
     }
 
-    // 3. Area whitelist validation
     if (!AREAS.includes(area)) {
       return res.status(400).json({
         success: false,
-        message: `Invalid area selected. Please select a valid area from the list.`,
+        message: `Area "${area}" is not supported. Please select a valid area.`,
       });
     }
 
-    // 4. Start & End date parsing & validation
     const start = new Date(startTime);
     const end = new Date(estimatedEndTime);
 
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid start time or estimated end time format.',
+        message: 'Invalid date format for start time or end time.',
       });
     }
 
     if (end <= start) {
       return res.status(400).json({
         success: false,
-        message: 'Estimated restoration end time must be after the start time.',
+        message: 'Estimated restoration time must be after the start time.',
       });
     }
 
-    // 5. Create official admin report (auto-approved, live immediately)
     const report = await Report.create({
       type,
       area,
       startTime: start,
       estimatedEndTime: end,
-      description: description ? description.trim() : '',
+      description: description?.trim() || '',
       source: 'admin',
       approved: true,
       submittedBy: null,
     });
 
-    const status = report.calculateStatus(getSimulatedTime());
+    const obj = report.toObject({ virtuals: true });
+    obj.status = report.calculateStatus(getReferenceTime());
 
     res.status(201).json({
       success: true,
-      message: 'Official outage alert published successfully.',
-      data: {
-        ...report.toObject(),
-        status,
-      },
+      message: `Official ${type} alert issued for ${area}. It is now live.`,
+      data: obj,
     });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Get all user-submitted & official reports for administrative review
+// @desc    Get all user-submitted reports for administrative review (including address)
 // @route   GET /api/admin/reports
 // @access  Private (Admin Only)
 const getAllReportsForAdmin = async (req, res, next) => {
   try {
-    const reports = await Report.find()
-      .populate('submittedBy', 'username email address area')
+    const referenceTime = getReferenceTime();
+
+    const reports = await Report.find({ source: 'user' })
+      .populate('submittedBy', 'username address area email')
       .sort({ createdAt: -1 });
 
-    const refTime = getSimulatedTime();
-
-    const formattedReports = reports.map((report) => {
-      const obj = report.toObject();
-      obj.status = report.calculateStatus(refTime);
+    const data = reports.map((r) => {
+      const obj = r.toObject({ virtuals: true });
+      obj.status = r.calculateStatus(referenceTime);
       return obj;
     });
 
     res.status(200).json({
       success: true,
-      count: formattedReports.length,
-      referenceTime: refTime,
-      data: formattedReports,
+      count: data.length,
+      data,
     });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Approve a user-submitted report (turns into live official alert)
+// @desc    Approve a user-submitted report (converts it into a live official alert)
 // @route   PUT /api/admin/reports/:id/approve
 // @access  Private (Admin Only)
 const approveReport = async (req, res, next) => {
@@ -124,30 +120,27 @@ const approveReport = async (req, res, next) => {
     const report = await Report.findById(req.params.id);
 
     if (!report) {
-      return res.status(404).json({
-        success: false,
-        message: 'Outage report not found.',
-      });
+      return res.status(404).json({ success: false, message: 'Report not found.' });
+    }
+
+    if (report.source !== 'user') {
+      return res.status(400).json({ success: false, message: 'Only user-submitted reports require approval.' });
     }
 
     report.approved = true;
     await report.save();
 
-    const refTime = getSimulatedTime();
-    const updatedObj = report.toObject();
-    updatedObj.status = report.calculateStatus(refTime);
-
     res.status(200).json({
       success: true,
-      message: 'Report approved successfully and is now visible to residents.',
-      data: updatedObj,
+      message: 'Report approved. It is now visible as an official alert.',
+      data: report,
     });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Reject a user-submitted report
+// @desc    Reject (delete) a user-submitted report
 // @route   DELETE /api/admin/reports/:id
 // @access  Private (Admin Only)
 const rejectReport = async (req, res, next) => {
@@ -155,17 +148,14 @@ const rejectReport = async (req, res, next) => {
     const report = await Report.findById(req.params.id);
 
     if (!report) {
-      return res.status(404).json({
-        success: false,
-        message: 'Outage report not found.',
-      });
+      return res.status(404).json({ success: false, message: 'Report not found.' });
     }
 
-    await Report.findByIdAndDelete(req.params.id);
+    await report.deleteOne();
 
     res.status(200).json({
       success: true,
-      message: 'Report rejected and removed successfully.',
+      message: 'Report rejected and removed from the queue.',
     });
   } catch (error) {
     next(error);
@@ -174,9 +164,9 @@ const rejectReport = async (req, res, next) => {
 
 // @desc    Get current simulated reference time (Demo Time-Skip Feature)
 // @route   GET /api/admin/time-skip
-// @access  Public / Private
+// @access  Public
 const getTimeSkip = (req, res) => {
-  const effectiveTime = getSimulatedTime();
+  const effectiveTime = getReferenceTime();
   res.status(200).json({
     success: true,
     data: {
@@ -198,11 +188,11 @@ const setTimeSkip = (req, res) => {
     simulatedTimeOffsetMs += addMinutes * 60 * 1000;
   }
 
-  const effectiveTime = getSimulatedTime();
+  const effectiveTime = getReferenceTime();
 
   res.status(200).json({
     success: true,
-    message: `Simulated clock updated. Current offset: ${simulatedTimeOffsetMs / (60 * 1000)} minutes.`,
+    message: `Simulated clock updated. Offset: ${simulatedTimeOffsetMs / (60 * 1000)} minutes.`,
     data: {
       offsetMinutes: simulatedTimeOffsetMs / (60 * 1000),
       effectiveTime,
@@ -217,6 +207,5 @@ module.exports = {
   rejectReport,
   getTimeSkip,
   setTimeSkip,
-  getSimulatedTime,
+  getSimulatedTimeOffset,
 };
-

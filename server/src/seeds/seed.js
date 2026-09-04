@@ -9,6 +9,7 @@
  * Run with: npm run seed
  */
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 const dotenv = require('dotenv');
 const { AREAS } = require('../config/areas');
 const Report = require('../models/Report');
@@ -22,306 +23,209 @@ const seedDatabase = async () => {
     const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/power_water_alerts';
     console.log(`[Seed] Connecting to MongoDB: ${mongoURI}`);
     await mongoose.connect(mongoURI);
-    console.log('[Seed] Connected successfully.');
+    console.log('[Seed] Connected to MongoDB...');
 
-    // 1. Purge existing collections
-    console.log('[Seed] Clearing existing collections (Admin, User, Report)...');
+    // --- Clear existing collections ---
     await Admin.deleteMany({});
     await User.deleteMany({});
     await Report.deleteMany({});
+    console.log('[Seed] Cleared existing Admin, User, and Report collections.');
 
-    // 2. Seed Default Administrator
-    console.log('[Seed] Creating default administrator...');
-    const admin = await Admin.create({
-      username: 'admin',
-      password: 'admin123', // Will be hashed by Admin pre-save hook
-      role: 'admin',
-    });
-    console.log(`[Seed] Admin created: ${admin.username} (Role: ${admin.role})`);
+    // --- Create admin account ---
+    const adminPass = await bcrypt.hash('admin123', 10);
+    const admin = await Admin.create({ username: 'admin', password: adminPass });
+    console.log(`[Seed] Admin created: admin / admin123`);
 
-    // 3. Seed Realistic Resident Users across areas
-    console.log('[Seed] Creating sample resident users...');
-    const sampleUsersData = [
+    // --- Create sample resident users (one per a few areas) ---
+    const userPass = await bcrypt.hash('user123', 10);
+    const users = await User.insertMany([
       {
-        username: 'kamal_perera',
-        password: 'user123',
-        email: 'kamal.perera@email.lk',
+        username: 'colombo3',
+        password: userPass,
+        email: 'kasun@example.lk',
         area: 'Colombo 03 (Kollupitiya)',
-        address: 'No. 45/2, Galle Road, Kollupitiya, Colombo 03',
+        address: '42/1 Galle Road, Kollupitiya, Colombo 03',
       },
       {
-        username: 'nimali_silva',
-        password: 'user123',
-        email: 'nimali.silva@email.lk',
-        area: 'Colombo 07 (Cinnamon Gardens)',
-        address: '12 Flower Road, Colombo 07',
-      },
-      {
-        username: 'dinesh_fernando',
-        password: 'user123',
-        email: 'dinesh.f@email.lk',
+        username: 'nimali_w',
+        password: userPass,
+        email: 'nimali@example.lk',
         area: 'Dehiwala',
-        address: '88/3 Kawdana Road, Dehiwala',
+        address: '15 Vandervort Place, Dehiwala',
       },
       {
-        username: 'anusha_jayasinghe',
-        password: 'user123',
-        email: 'anusha.j@email.lk',
+        username: 'sunil_silva',
+        password: userPass,
+        email: 'sunil@example.lk',
         area: 'Mount Lavinia',
-        address: '14 Hotel Road, Mount Lavinia',
+        address: '78 Hotel Road, Mount Lavinia',
       },
       {
-        username: 'sunil_wijesinghe',
-        password: 'user123',
-        email: 'sunil.w@email.lk',
+        username: 'chamara_k',
+        password: userPass,
+        email: 'chamara@example.lk',
         area: 'Nugegoda',
-        address: '205 High Level Road, Nugegoda',
+        address: '12 High Level Road, Nugegoda',
       },
-      {
-        username: 'chathuri_wickramasinghe',
-        password: 'user123',
-        email: 'chathuri.w@email.lk',
-        area: 'Kaduwela',
-        address: '17/B Avissawella Road, Kaduwela',
-      },
-      {
-        username: 'rohan_de_silva',
-        password: 'user123',
-        email: 'rohan.ds@email.lk',
-        area: 'Maharagama',
-        address: '34 Temple Road, Maharagama',
-      },
-      {
-        username: 'sanduni_peiris',
-        password: 'user123',
-        email: 'sanduni.p@email.lk',
-        area: 'Moratuwa',
-        address: '92 Galle Road, Rawathawatte, Moratuwa',
-      },
-    ];
+    ]);
+    console.log(`[Seed] ${users.length} resident users created.`);
 
-    const createdUsers = await User.create(sampleUsersData);
-    console.log(`[Seed] Created ${createdUsers.length} sample resident users.`);
+    // --- Time references for realistic mixed statuses ---
+    const now = new Date();
+    const past = (h) => new Date(now.getTime() - h * 3600 * 1000);
+    const future = (h) => new Date(now.getTime() + h * 3600 * 1000);
 
-    // Helper map for user lookup by area
-    const userByArea = {};
-    createdUsers.forEach((u) => {
-      userByArea[u.area] = u._id;
-    });
-
-    // 4. Seed Comprehensive Reports Dataset
-    // Uses dynamic relative timestamps based on Date.now() so live status derivation
-    // (scheduled, ongoing, resolved) and countdowns work reliably whenever seeded.
-    const now = Date.now();
-    const HOUR = 60 * 60 * 1000;
-    const MINUTE = 60 * 1000;
-
-    const sampleReports = [
-      // 1. Colombo 03 (Kollupitiya)
+    // --- Seed Reports ---
+    // Mix of admin-issued (approved) and user-submitted (approved + pending)
+    // Each area gets at least 1 report; mix of power/water and scheduled/ongoing/resolved
+    const reports = await Report.insertMany([
+      // ── COLOMBO 03 — Power, ONGOING (admin-issued)
       {
         type: 'power',
         area: 'Colombo 03 (Kollupitiya)',
-        startTime: new Date(now - 1.5 * HOUR),
-        estimatedEndTime: new Date(now + 2.5 * HOUR), // ONGOING
+        startTime: past(2),
+        estimatedEndTime: future(1.25),
         source: 'admin',
         approved: true,
-        description: 'CEB Emergency Grid Repair: 33kV primary feeder cable breakdown along Galle Road. Technical breakdown units on-site.',
+        description: 'Scheduled 33kV substation switchgear overhaul and distribution feeder line maintenance by CEB field engineers.',
         submittedBy: null,
       },
-      {
-        type: 'water',
-        area: 'Colombo 03 (Kollupitiya)',
-        startTime: new Date(now + 4 * HOUR),
-        estimatedEndTime: new Date(now + 9 * HOUR), // SCHEDULED
-        source: 'admin',
-        approved: true,
-        description: 'NWSB Planned Maintenance: Urgent transmission valve replacement near Marine Drive. Low pressure or complete disruption expected.',
-        submittedBy: null,
-      },
-
-      // 2. Colombo 07 (Cinnamon Gardens)
-      {
-        type: 'power',
-        area: 'Colombo 07 (Cinnamon Gardens)',
-        startTime: new Date(now + 5 * HOUR),
-        estimatedEndTime: new Date(now + 8.5 * HOUR), // SCHEDULED
-        source: 'admin',
-        approved: true,
-        description: 'CEB Scheduled Maintenance: Distribution transformer overhaul and canopy branch clearance near Independence Avenue.',
-        submittedBy: null,
-      },
+      // ── COLOMBO 07 — Water, SCHEDULED (admin-issued)
       {
         type: 'water',
         area: 'Colombo 07 (Cinnamon Gardens)',
-        startTime: new Date(now - 8 * HOUR),
-        estimatedEndTime: new Date(now - 1.5 * HOUR), // RESOLVED
+        startTime: future(3),
+        estimatedEndTime: future(11),
+        source: 'admin',
+        approved: true,
+        description: 'Main transmission valve replacement at Horton Place junction. Affected streets: Horton Place, Ward Place, Cambridge Terrace.',
+        submittedBy: null,
+      },
+      // ── DEHIWALA — Water, ONGOING (user-submitted, approved)
+      {
+        type: 'water',
+        area: 'Dehiwala',
+        startTime: past(1),
+        estimatedEndTime: future(2),
         source: 'user',
         approved: true,
-        description: 'Water pressure drop reported on Flower Road following booster pump trip. Normal pressure has been restored.',
-        submittedBy: userByArea['Colombo 07 (Cinnamon Gardens)'],
+        description: 'Severe pipe burst near Dehiwala supermarket junction. Zero household water pressure in surrounding streets.',
+        submittedBy: users[1]._id,
       },
-
-      // 3. Dehiwala
-      {
-        type: 'water',
-        area: 'Dehiwala',
-        startTime: new Date(now - 2 * HOUR),
-        estimatedEndTime: new Date(now + 3 * HOUR), // ONGOING
-        source: 'admin',
-        approved: true,
-        description: 'NWSB Emergency Shutdown: Major distribution transmission main rupture near Kawdana junction. Excavation underway.',
-        submittedBy: null,
-      },
+      // ── DEHIWALA — Power, RESOLVED (admin-issued)
       {
         type: 'power',
         area: 'Dehiwala',
-        startTime: new Date(now - 45 * MINUTE),
-        estimatedEndTime: new Date(now + 1.5 * HOUR), // ONGOING (User-submitted, pending admin review)
+        startTime: past(5),
+        estimatedEndTime: past(2),
+        source: 'admin',
+        approved: true,
+        description: 'Emergency repair to damaged overhead line section after storm damage. Restoration completed ahead of schedule.',
+        submittedBy: null,
+      },
+      // ── MOUNT LAVINIA — Power, SCHEDULED (user-submitted, approved)
+      {
+        type: 'power',
+        area: 'Mount Lavinia',
+        startTime: future(1),
+        estimatedEndTime: future(5),
+        source: 'user',
+        approved: true,
+        description: 'Single-phase voltage drops and flickering streetlights near Hotel Road junction. Reported to CEB.',
+        submittedBy: users[2]._id,
+      },
+      // ── NUGEGODA — Water, ONGOING (admin-issued)
+      {
+        type: 'water',
+        area: 'Nugegoda',
+        startTime: past(0.5),
+        estimatedEndTime: future(3),
+        source: 'admin',
+        approved: true,
+        description: 'NWSDB routine pipeline flushing and pressure testing along High Level Road corridor.',
+        submittedBy: null,
+      },
+      // ── KADUWELA — Power, SCHEDULED (admin-issued)
+      {
+        type: 'power',
+        area: 'Kaduwela',
+        startTime: future(6),
+        estimatedEndTime: future(10),
+        source: 'admin',
+        approved: true,
+        description: 'Planned 11kV feeder switching for grid capacity upgrade. Kaduwela industrial zone and adjacent residential areas affected.',
+        submittedBy: null,
+      },
+      // ── MAHARAGAMA — Water, RESOLVED (user-submitted, approved)
+      {
+        type: 'water',
+        area: 'Maharagama',
+        startTime: past(8),
+        estimatedEndTime: past(4),
+        source: 'user',
+        approved: true,
+        description: 'Water supply interruption due to burst main at Maharagama junction. Supply restored by NWSDB repair crew.',
+        submittedBy: null,
+      },
+      // ── MORATUWA — Power, ONGOING (admin-issued)
+      {
+        type: 'power',
+        area: 'Moratuwa',
+        startTime: past(1),
+        estimatedEndTime: future(2.5),
+        source: 'admin',
+        approved: true,
+        description: 'Transformer replacement at Rawathawatte substation affecting Rawathawatte, Uswatte, and parts of Katubedda.',
+        submittedBy: null,
+      },
+      // ── MORATUWA — Water, SCHEDULED (admin-issued)
+      {
+        type: 'water',
+        area: 'Moratuwa',
+        startTime: future(14),
+        estimatedEndTime: future(20),
+        source: 'admin',
+        approved: true,
+        description: 'Planned water supply interruption for service reservoir maintenance at Moratuwa elevated tank.',
+        submittedBy: null,
+      },
+      // ── COLOMBO 03 — Power, user-submitted PENDING (not approved) — for admin review queue
+      {
+        type: 'power',
+        area: 'Colombo 03 (Kollupitiya)',
+        startTime: past(0.2),
+        estimatedEndTime: future(1),
         source: 'user',
         approved: false,
-        description: 'Transformer spark and loud bang heard near Station Road. Entire lane without electricity.',
-        submittedBy: userByArea['Dehiwala'],
+        description: 'Sudden spark observed at transformer post on Lane 2. Total blackout on lanes 2 & 3. Needs urgent attention.',
+        submittedBy: users[0]._id,
       },
-
-      // 4. Mount Lavinia
-      {
-        type: 'power',
-        area: 'Mount Lavinia',
-        startTime: new Date(now + 2.5 * HOUR),
-        estimatedEndTime: new Date(now + 6 * HOUR), // SCHEDULED
-        source: 'admin',
-        approved: true,
-        description: 'CEB Scheduled Maintenance: Overhead high-voltage reconductoring along Hotel Road and coastal zone.',
-        submittedBy: null,
-      },
-      {
-        type: 'water',
-        area: 'Mount Lavinia',
-        startTime: new Date(now - 12 * HOUR),
-        estimatedEndTime: new Date(now - 3 * HOUR), // RESOLVED
-        source: 'admin',
-        approved: true,
-        description: 'NWSB Routine Cleaning: Dehiwala-Mount Lavinia water storage reservoir routine disinfection completed successfully.',
-        submittedBy: null,
-      },
-
-      // 5. Nugegoda
+      // ── NUGEGODA — Water, user-submitted PENDING — for admin review queue
       {
         type: 'water',
         area: 'Nugegoda',
-        startTime: new Date(now - 1 * HOUR),
-        estimatedEndTime: new Date(now + 2 * HOUR), // ONGOING
-        source: 'user',
-        approved: true,
-        description: 'Heavy pipe leak flooded pavement outside Nugegoda Supermarket on High Level Road. NWSB crew on-site isolating line.',
-        submittedBy: userByArea['Nugegoda'],
-      },
-      {
-        type: 'power',
-        area: 'Nugegoda',
-        startTime: new Date(now - 7 * HOUR),
-        estimatedEndTime: new Date(now - 2 * HOUR), // RESOLVED
-        source: 'admin',
-        approved: true,
-        description: 'CEB Substation Maintenance: Scheduled insulator replacements completed at Mirihana feeder.',
-        submittedBy: null,
-      },
-
-      // 6. Kaduwela
-      {
-        type: 'power',
-        area: 'Kaduwela',
-        startTime: new Date(now - 50 * MINUTE),
-        estimatedEndTime: new Date(now + 1.5 * HOUR), // ONGOING
-        source: 'admin',
-        approved: true,
-        description: 'CEB Emergency Outage: Unscheduled breakdown at Kaduwela primary grid substation following thunderstorm.',
-        submittedBy: null,
-      },
-      {
-        type: 'water',
-        area: 'Kaduwela',
-        startTime: new Date(now + 6 * HOUR),
-        estimatedEndTime: new Date(now + 12 * HOUR), // SCHEDULED
-        source: 'admin',
-        approved: true,
-        description: 'NWSB Kelani Right Bank Water Treatment Plant electrical maintenance. Entire Kaduwela municipal council zone affected.',
-        submittedBy: null,
-      },
-
-      // 7. Maharagama
-      {
-        type: 'power',
-        area: 'Maharagama',
-        startTime: new Date(now + 3 * HOUR),
-        estimatedEndTime: new Date(now + 7 * HOUR), // SCHEDULED
-        source: 'user',
-        approved: true,
-        description: 'CEB Branch notice: Scheduled feeder line maintenance along Old Road, Pamunuwa textile trading zone.',
-        submittedBy: userByArea['Maharagama'],
-      },
-      {
-        type: 'water',
-        area: 'Maharagama',
-        startTime: new Date(now - 1.2 * HOUR),
-        estimatedEndTime: new Date(now + 2 * HOUR), // ONGOING
-        source: 'admin',
-        approved: true,
-        description: 'NWSB Urgent Pipeline Realignment: Main water distribution line diversion work due to flyover construction.',
-        submittedBy: null,
-      },
-
-      // 8. Moratuwa
-      {
-        type: 'power',
-        area: 'Moratuwa',
-        startTime: new Date(now - 14 * HOUR),
-        estimatedEndTime: new Date(now - 4 * HOUR), // RESOLVED
-        source: 'user',
-        approved: true,
-        description: 'Localized breaker trip restored after CEB area repair unit replaced fused cutouts on Uyana Road.',
-        submittedBy: userByArea['Moratuwa'],
-      },
-      {
-        type: 'water',
-        area: 'Moratuwa',
-        startTime: new Date(now - 30 * MINUTE),
-        estimatedEndTime: new Date(now + 3.5 * HOUR), // ONGOING (User-submitted, pending admin review)
+        startTime: past(0.5),
+        estimatedEndTime: future(2),
         source: 'user',
         approved: false,
-        description: 'Sudden drop in tap water pressure since morning along Rawathawatte bypass. Reported by multiple resident households.',
-        submittedBy: userByArea['Moratuwa'],
+        description: 'No water pressure since morning. Affecting multiple households along Colombo Road, Nugegoda.',
+        submittedBy: users[3]._id,
       },
-    ];
+    ]);
 
-    const createdReports = await Report.create(sampleReports);
-    console.log(`[Seed] Created ${createdReports.length} reports across all 8 areas.`);
-
-    // 5. Audit seed coverage against Requirement #9
-    console.log('\n[Seed] --- DATASET COVERAGE AUDIT ---');
-    const coveredAreas = new Set(createdReports.map((r) => r.area));
-    console.log(`[Seed] Areas covered: ${coveredAreas.size} / ${AREAS.length}`);
-
-    const countsByType = { power: 0, water: 0 };
-    const countsByStatus = { scheduled: 0, ongoing: 0, resolved: 0 };
-    const countsBySource = { admin: 0, user: 0 };
-
-    createdReports.forEach((r) => {
-      countsByType[r.type] = (countsByType[r.type] || 0) + 1;
-      const status = r.calculateStatus();
-      countsByStatus[status] = (countsByStatus[status] || 0) + 1;
-      countsBySource[r.source] = (countsBySource[r.source] || 0) + 1;
-    });
-
-    console.log(`[Seed] Types: Power=${countsByType.power}, Water=${countsByType.water}`);
-    console.log(`[Seed] Statuses: Ongoing=${countsByStatus.ongoing}, Scheduled=${countsByStatus.scheduled}, Resolved=${countsByStatus.resolved}`);
-    console.log(`[Seed] Sources: Admin=${countsBySource.admin}, User=${countsBySource.user}`);
-    console.log('[Seed] Requirement #9 verification: PASSED (All 8 areas seeded with mixed types and statuses).');
-    console.log('------------------------------------\n');
+    console.log(`[Seed] ${reports.length} outage reports seeded across ${AREAS.length} areas.`);
+    console.log('\n[Seed] ✅ Database seeded successfully!\n');
+    console.log('--- Test Credentials ---');
+    console.log('Admin:    admin    / admin123');
+    console.log('Users:    colombo3 / user123');
+    console.log('          nimali_w / user123');
+    console.log('          sunil_silva / user123');
+    console.log('          chamara_k / user123');
+    console.log('------------------------\n');
 
     process.exit(0);
   } catch (error) {
-    console.error(`[Seed] Error executing seeder: ${error.message}`);
+    console.error(`[Seed] Error: ${error.message}`);
     process.exit(1);
   }
 };

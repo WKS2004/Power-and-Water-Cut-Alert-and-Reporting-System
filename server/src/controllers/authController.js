@@ -5,11 +5,12 @@ const Admin = require('../models/Admin');
 const { AREAS } = require('../config/areas');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretjwtkey_change_in_production';
+const JWT_EXPIRES_IN = '7d';
 
-// Helper to sign JWT token
-const generateToken = (payload) => {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
-};
+/**
+ * Generate a JWT token for a given payload
+ */
+const signToken = (payload) => jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
 // @desc    Register a new resident user
 // @route   POST /api/auth/register
@@ -18,15 +19,23 @@ const registerUser = async (req, res, next) => {
   try {
     const { username, password, email, area, address } = req.body;
 
-    // 1. Required fields check
+    // Validate required fields
     if (!username || !password || !email || !area || !address) {
       return res.status(400).json({
         success: false,
-        message: 'Please fill in all required fields: username, password, email, area, and address.',
+        message: 'All fields are required: username, password, email, area, and address.',
       });
     }
 
-    // 2. Password minimum length check
+    // Validate username length
+    if (username.trim().length < 3) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username must be at least 3 characters long.',
+      });
+    }
+
+    // Validate password length
     if (password.length < 6) {
       return res.status(400).json({
         success: false,
@@ -34,50 +43,42 @@ const registerUser = async (req, res, next) => {
       });
     }
 
-    // 3. Area whitelist validation
+    // Validate area against whitelist
     if (!AREAS.includes(area)) {
       return res.status(400).json({
         success: false,
-        message: `Invalid area selected. Please select one of the allowed areas.`,
+        message: `Area "${area}" is not in the supported area list. Please select a valid area.`,
       });
     }
 
-    // 4. Check if username is already registered as User or Admin
-    const existingUser = await User.findOne({ username });
-    const existingAdmin = await Admin.findOne({ username });
+    // Check for duplicate username (in both User and Admin collections)
+    const existingUser = await User.findOne({ username: username.trim() });
+    const existingAdmin = await Admin.findOne({ username: username.trim() });
     if (existingUser || existingAdmin) {
-      return res.status(400).json({
+      return res.status(409).json({
         success: false,
-        message: `The username "${username}" is already taken. Please choose another.`,
+        message: 'That username is already taken. Please choose a different one.',
       });
     }
 
-    // 5. Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 6. Save new user
+    // Create user
     const user = await User.create({
-      username,
+      username: username.trim(),
       password: hashedPassword,
-      email,
+      email: email.trim().toLowerCase(),
       area,
-      address,
-      role: 'user',
+      address: address.trim(),
     });
 
-    // 7. Generate JWT token
-    const tokenPayload = {
-      id: user._id,
-      username: user.username,
-      role: 'user',
-      area: user.area,
-    };
-    const token = generateToken(tokenPayload);
+    // Issue JWT
+    const token = signToken({ id: user._id, role: user.role, username: user.username, area: user.area });
 
     res.status(201).json({
       success: true,
-      message: 'Registration successful!',
+      message: 'Household registered successfully.',
       token,
       user: {
         id: user._id,
@@ -103,60 +104,57 @@ const loginUser = async (req, res, next) => {
     if (!username || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide both username and password.',
+        message: 'Username and password are required.',
       });
     }
 
     // Check Admin collection first
-    let account = await Admin.findOne({ username });
+    let account = await Admin.findOne({ username: username.trim() });
     let role = 'admin';
 
-    // If not admin, check User collection
+    // Fall back to User collection
     if (!account) {
-      account = await User.findOne({ username });
+      account = await User.findOne({ username: username.trim() });
       role = 'user';
     }
 
     if (!account) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid username or password.',
+        message: 'No account found with that username. Please check and try again.',
       });
     }
 
-    // Compare password
+    // Verify password
     const isMatch = await bcrypt.compare(password, account.password);
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid username or password.',
+        message: 'Incorrect password. Please try again.',
       });
     }
 
-    // Create JWT token payload
-    const tokenPayload = {
+    // Build token payload
+    const payload = {
       id: account._id,
-      username: account.username,
       role,
-      ...(role === 'user' ? { area: account.area } : {}),
+      username: account.username,
+      area: account.area || null,
     };
-    const token = generateToken(tokenPayload);
+
+    const token = signToken(payload);
 
     res.status(200).json({
       success: true,
-      message: 'Login successful!',
+      message: 'Login successful.',
       token,
       user: {
         id: account._id,
         username: account.username,
         role,
-        ...(role === 'user'
-          ? {
-              email: account.email,
-              area: account.area,
-              address: account.address,
-            }
-          : {}),
+        area: account.area || null,
+        email: account.email || null,
+        address: account.address || null,
       },
     });
   } catch (error) {
@@ -179,15 +177,19 @@ const getCurrentUser = async (req, res, next) => {
     }
 
     if (!account) {
-      return res.status(404).json({
-        success: false,
-        message: 'User account not found.',
-      });
+      return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
     res.status(200).json({
       success: true,
-      data: account,
+      data: {
+        id: account._id,
+        username: account.username,
+        role,
+        area: account.area || null,
+        email: account.email || null,
+        address: account.address || null,
+      },
     });
   } catch (error) {
     next(error);
@@ -199,4 +201,3 @@ module.exports = {
   loginUser,
   getCurrentUser,
 };
-
